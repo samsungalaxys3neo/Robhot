@@ -1,9 +1,9 @@
 # File che collega tutto, fa il loop e mostra il video 
 
 import cv2
-from camera import Camera # importa la classe camera (camera.py)
-from hand_tracking import HandTracker # importa la classe hand tracker (hand_tracking.py)
-from gesture import GestureDetector # importa la classe gesture detector (gesture.py)
+from Gesture_Control.camera import Camera # importa la classe camera (camera.py)
+from Gesture_Control.hand_tracking import HandTracker # importa la classe hand tracker (hand_tracking.py)
+from Gesture_Control.gesture import GestureDetector # importa la classe gesture detector (gesture.py)
 
 # Crea oggetto webcam 
 cam = Camera()
