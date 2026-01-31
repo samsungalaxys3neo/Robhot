@@ -1,1 +1,9 @@
-# RobHOT Project
+# RobHOT Project 
+
+Questo sarà il mio cazzo di robot comandato da Arduino!!!!!!!!
+Per ora gli step sono solo:
+
+1.  Creare uno script `Gesture_Detector` scritto in Python usando MediaPipe e OpenCV per la rilevazione dei gesti della mano (palmo aperto, saluto, dito medio, rock n'roll, yolo, numeri).
+2.  Robhot costruito in cartone che:
+    * risponde ai gesti con sequenze di "BEEEEP" e piccolo messaggio su schermo LED;
+    * piccolo braccio robotico che saluta!
