@@ -7,3 +7,10 @@ Per ora gli step sono solo:
 2.  Robhot costruito in cartone che:
     * risponde ai gesti con sequenze di "BEEEEP" e piccolo messaggio su schermo LED;
     * piccolo braccio robotico che saluta!
+
+gesture_detector/
+  main.py
+  camera.py
+  hand_detector.py
+  gesture_detector.py
+  gestures.py
