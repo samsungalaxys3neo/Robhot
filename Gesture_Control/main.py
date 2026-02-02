@@ -1,64 +1,312 @@
-# File che collega tutto, fa il loop e mostra il video 
-
+import time
 import cv2
-from Gesture_Control.camera import Camera # importa la classe camera (camera.py)
-from Gesture_Control.hand_tracking import HandTracker # importa la classe hand tracker (hand_tracking.py)
-from Gesture_Control.gesture import GestureDetector # importa la classe gesture detector (gesture.py)
+import platform
+import argparse
+import subprocess
+import re
+import os
+import json
+import csv
 
-# Crea oggetto webcam 
-cam = Camera()
+from hand_detector import HandDetector
+from gesture_detector import GestureDetector
+from camera import CameraUI
 
-# crea oggetto hand tracker
-tracker = HandTracker()
 
-# crea oggetto gesture detector
-detector = GestureDetector()
+def open_camera(preferred_index: int = 0):
+    cap = None
+    system = platform.system()
 
-# Loop principale (stream video continuo)
-while True:
-    frame = cam.get_frame()
-    # ottiene un frame dalla webcam 
+    if system == "Darwin":
+        try:
+            proc = subprocess.run(
+                ["ffmpeg", "-f", "avfoundation", "-list_devices", "true", "-i", ""],
+                capture_output=True,
+                text=True,
+            )
+            out = proc.stderr or proc.stdout or ""
+            video_section = False
+            devices = []
+            for line in out.splitlines():
+                if "AVFoundation video devices:" in line:
+                    video_section = True
+                    continue
+                if video_section:
+                    m = re.search(r"\[(\d+)\] (.+)", line)
+                    if m:
+                        idx = int(m.group(1))
+                        name = m.group(2).strip()
+                        devices.append((idx, name))
+                    if "AVFoundation audio devices:" in line:
+                        break
 
-    # se il frame non è valido, salta il ciclo:
-    if frame is None:
-        continue
+            prefer_keywords = ("FaceTime", "Built-in", "iSight", "Camera", "USB")
+            exclude_keywords = ("iPhone", "Phone", "Android", "IPWebcam", "Raspi")
 
-    # processa il frame per trovare le mani
-    results = tracker.process(frame)
+            chosen = None
+            for idx, name in devices:
+                nlower = name.lower()
+                if any(k.lower() in nlower for k in exclude_keywords):
+                    continue
+                if any(k.lower() in nlower for k in prefer_keywords):
+                    chosen = name
+                    break
 
-    open_palm = False
-    waving = False
+            if chosen:
+                try:
+                    cap = cv2.VideoCapture(chosen, cv2.CAP_AVFOUNDATION)
+                    if cap is not None and cap.isOpened():
+                        return cap, chosen
+                except Exception:
+                    cap = None
 
-    if results.multi_hand_landmarks:
-        # se vengono trovate mani, controlla gesti
-        gestures = detector.detect(results.multi_hand_landmarks[0])
+        except FileNotFoundError:
+            pass
+        except Exception:
+            pass
 
-        open_palm = gestures["open_palm"]
-        waving = gestures["waving"]
+        for i in range(0, 5):
+            try:
+                c = cv2.VideoCapture(i, cv2.CAP_AVFOUNDATION)
+                if c is not None and c.isOpened():
+                    return c, i
+            except Exception:
+                pass
 
-       # DEBUGGING: Stampa per capire lo stato della mano aperta
-        print(f"Open Palm: {open_palm}")
+    for i in range(0, 5):
+        try:
+            c = cv2.VideoCapture(i)
+            if c is not None and c.isOpened():
+                return c, i
+        except Exception:
+            continue
 
-    if waving:
-        print("Rilevato waving, mostro CIAO!")
-        cv2.putText(frame, "CIAO!", (30, 150), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255,255), 3)
+    return None, None
 
-    elif open_palm:
-        print("Rilevato palmo aperto, mostro STOP!") 
-        cv2.putText(frame, "STOP!", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255,255), 3)
 
-    tracker.draw(frame, results)
-    # disegna i landmark delle mani sul frame
+def main(cam_index: int | None = None, wave_permissive: bool = False):
+    # Load persisted config (preferred camera index)
+    cfg_path = os.path.expanduser("~/.gesture_control.json")
+    cfg = {}
+    if os.path.exists(cfg_path):
+        try:
+            with open(cfg_path, "r") as f:
+                cfg = json.load(f)
+        except Exception:
+            cfg = {}
 
-    cv2.imshow("Robhot", frame) # mostra il frame a schermo
+    # If no cam_index provided, prefer saved config
+    if cam_index is None and isinstance(cfg.get("cam_index"), int):
+        cam_index = cfg.get("cam_index")
 
-    # controlla se l'utente ha premuto 'q' per uscire
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+    if cam_index is None:
+        cap, used_idx = open_camera(0)
+    else:
+        cap = cv2.VideoCapture(int(cam_index))
+        used_idx = int(cam_index)
 
-# rilascia le risorse
-cam.release()
-# chiude mediapipe
-tracker.close()
-# chiude tutte le finestre aperte OpenCV
-cv2.destroyAllWindows()
+    if cap is None or not cap.isOpened():
+        raise RuntimeError("Unable to open any camera")
+
+    hd = HandDetector()
+    gd = GestureDetector(wave_permissive=wave_permissive)
+    ui = CameraUI()
+
+    event_hold_s = 2.0
+    last_event = ""
+    last_event_ts = 0.0
+
+    # Recording (toggle with 'p') - collects per-frame diagnostics while recording
+    is_recording = False
+    record_buffer = []
+    record_start_ts = 0.0
+    record_max_s = 5.0  # auto-stop after this many seconds
+    record_dir = os.path.join(os.getcwd(), "wave_records")
+
+    while True:
+        ok, frame = cap.read()
+        if not ok:
+            break
+
+        # Mirror horizontally (selfie-style) only. Use flipCode=1.
+        frame = cv2.flip(frame, 1)
+        ts = time.time()
+
+        hp = hd.process(frame, ts)
+        hands = [{"landmarks": h.landmarks, "handedness": h.handedness, "score": h.score} for h in hp.hands]
+
+        events, per_hand, total = gd.process(hands, ts)
+
+        for h in hands:
+            if h["handedness"] in ("left", "right"):
+                ui.draw_hand(frame, h["landmarks"], h["handedness"])
+
+        priority = ["wave", "thumbs_up", "middle_finger", "peace", "open_palm", "yolo"]
+        perhand_best = {}
+
+        for side in ("right", "left"):
+            if side not in per_hand:
+                continue
+
+            names = [ev.name for ev in events if ev.hand == side and ev.name != "count"]
+            chosen = None
+            for p in priority:
+                if p in names:
+                    chosen = p
+                    break
+
+            if not chosen:
+                cnt = per_hand[side].count
+                if cnt > 0:
+                    chosen = f"{cnt} fingers"
+                else:
+                    chosen = "hand"
+
+            perhand_best[side] = chosen.replace("_", " ")
+
+        wave_info = None
+        for ev in events:
+            if ev.name == "wave":
+                wave_info = f"{ev.hand} wave amp_x={ev.payload.get('amp_x', 0):.3f} amp_y={ev.payload.get('amp_y', 0):.3f} flips={ev.payload.get('flips', 0)}"
+                break
+
+        combined = " | ".join([f"{side}: {perhand_best[side]}" for side in ("right", "left") if side in perhand_best])
+
+        if wave_info:
+            combined = (combined + " | " + wave_info) if combined else wave_info
+
+    # If debug is on, append live wave statistics for each hand (amp/flips/open_ratio)
+        if ui.debug:
+            dbg_lines = []
+            for side in ("right", "left"):
+                if side in per_hand and getattr(per_hand[side], "wave_stats", None):
+                    ws = per_hand[side].wave_stats
+                    dbg_lines.append(f"{side} amp_x={ws['amp_x']:.3f} amp_y={ws['amp_y']:.3f} flips={ws['flips']} open={ws['open_ratio']:.2f}")
+            if dbg_lines:
+                dbg_txt = " | ".join(dbg_lines)
+                combined = (combined + " | " + dbg_txt) if combined else dbg_txt
+
+        if combined:
+            last_event = combined
+            last_event_ts = ts
+        elif ts - last_event_ts > event_hold_s:
+            last_event = ""
+
+        # If currently recording, append per-hand diagnostics to buffer
+        if is_recording:
+            for side, ph in per_hand.items():
+                ws = getattr(ph, "wave_stats", None) or {}
+                record_buffer.append(
+                    {
+                        "ts": ts,
+                        "side": side,
+                        "states": getattr(ph, "states", None),
+                        "count": getattr(ph, "count", None),
+                        "amp_x": ws.get("amp_x", 0),
+                        "amp_y": ws.get("amp_y", 0),
+                        "flips": ws.get("flips", 0),
+                        "open_ratio": ws.get("open_ratio", 0),
+                        "conf": ws.get("conf", 0),
+                    }
+                )
+
+        # Show recording status in HUD
+        hud_text = last_event
+        if is_recording:
+            hud_text = (hud_text + " | " if hud_text else "") + f"RECORDING ({len(record_buffer)} samples)"
+
+        ui.draw_hud(frame, hud_text, total)
+
+        cv2.imshow("gesture_detector", frame)
+        k = cv2.waitKey(1) & 0xFF
+        if k == 27 or k == ord("q"):
+            break
+        if k == ord("d"):
+            ui.debug = not ui.debug
+        if k == ord("p"):
+            # Toggle recording mode: start/stop collecting per-frame diagnostics
+            if not is_recording:
+                is_recording = True
+                record_buffer = []
+                record_start_ts = ts
+                print(f"Started recording diagnostics at {record_start_ts:.3f} (max {record_max_s}s). Press 'p' again to stop.")
+            else:
+                # Stop and dump buffer
+                is_recording = False
+                print(f"Stopped recording at {ts:.3f}. Collected {len(record_buffer)} samples.")
+                if record_buffer:
+                    # Print collected samples to terminal (human readable)
+                    for rec in record_buffer:
+                        print(f"{rec['ts']:.3f}\t{rec['side']}\tstates={rec['states']}\tcount={rec['count']}\tamp_x={rec['amp_x']:.4f}\tamp_y={rec['amp_y']:.4f}\tflips={rec['flips']}\topen={rec['open_ratio']:.3f}\tconf={rec['conf']:.3f}")
+
+                    # Save to CSV for easy sharing
+                    try:
+                        os.makedirs(record_dir, exist_ok=True)
+                        fname = os.path.join(record_dir, f"wave_record_{int(record_start_ts)}.csv")
+                        with open(fname, "w", newline="") as cf:
+                            writer = csv.writer(cf)
+                            writer.writerow(["ts", "side", "states", "count", "amp_x", "amp_y", "flips", "open_ratio", "conf"])
+                            for rec in record_buffer:
+                                writer.writerow([
+                                    f"{rec['ts']:.6f}",
+                                    rec["side"],
+                                    str(rec["states"]),
+                                    rec["count"],
+                                    f"{rec['amp_x']:.6f}",
+                                    f"{rec['amp_y']:.6f}",
+                                    rec["flips"],
+                                    f"{rec['open_ratio']:.6f}",
+                                    f"{rec['conf']:.6f}",
+                                ])
+                        print(f"Saved recording to {fname}")
+                    except Exception as e:
+                        print(f"Failed to save recording: {e}")
+
+        # Auto-stop recording when exceeding max duration
+        if is_recording and (ts - record_start_ts) > record_max_s:
+            is_recording = False
+            print(f"Auto-stopped recording after {record_max_s}s. Collected {len(record_buffer)} samples.")
+            if record_buffer:
+                try:
+                    os.makedirs(record_dir, exist_ok=True)
+                    fname = os.path.join(record_dir, f"wave_record_{int(record_start_ts)}.csv")
+                    with open(fname, "w", newline="") as cf:
+                        writer = csv.writer(cf)
+                        writer.writerow(["ts", "side", "states", "count", "amp_x", "amp_y", "flips", "open_ratio", "conf"])
+                        for rec in record_buffer:
+                            writer.writerow([
+                                f"{rec['ts']:.6f}",
+                                rec["side"],
+                                str(rec["states"]),
+                                rec["count"],
+                                f"{rec['amp_x']:.6f}",
+                                f"{rec['amp_y']:.6f}",
+                                rec["flips"],
+                                f"{rec['open_ratio']:.6f}",
+                                f"{rec['conf']:.6f}",
+                            ])
+                    print(f"Saved recording to {fname}")
+                except Exception as e:
+                    print(f"Failed to save recording: {e}")
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Gesture detector")
+    parser.add_argument("--cam", type=int, default=None, help="Camera index to use (default: auto-detect built-in)")
+    parser.add_argument("--save-cam", action="store_true", help="Save the chosen --cam index to ~/.gesture_control.json for future runs")
+    parser.add_argument("--wave-permissive", action="store_true", help="Enable very permissive wave detection (more sensitive)")
+    args = parser.parse_args()
+    # If user passed --save-cam together with --cam, persist it
+    if args.save_cam and args.cam is not None:
+        cfg_path = os.path.expanduser("~/.gesture_control.json")
+        try:
+            with open(cfg_path, "w") as f:
+                json.dump({"cam_index": int(args.cam)}, f)
+            print(f"Saved preferred camera index {args.cam} to {cfg_path}")
+        except Exception as e:
+            print(f"Failed to save config: {e}")
+
+    main(args.cam, wave_permissive=args.wave_permissive)
