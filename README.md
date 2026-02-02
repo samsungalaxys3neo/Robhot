@@ -14,3 +14,6 @@ gesture_detector/
   hand_detector.py
   gesture_detector.py
   gestures.py
+
+
+Per ora: camera preferita quella del pc (da cambiare successivamente in fase di automazione robhot)
