@@ -74,127 +74,85 @@ def is_peace(states: Dict[str, bool]) -> bool:
 class WaveTracker:
     def __init__(
         self,
-        window: int = 14,
-        # Lowered amp_thr because some users exhibit smaller lateral
-        # movements; this value works better for recorded samples where
-        # amp_x is often in the ~0.01-0.03 range.
-        amp_thr: float = 0.012,
-        flips_thr: int = 1,
-    min_dx: float = 0.002,
-        open_ratio: float = 0.45,
-        cooldown_s: float = 0.8,
+        window: int = 12,
+        amp_thr_norm: float = 0.18,
+        flips_thr: int = 2,
+        min_dx_norm: float = 0.02,
+        open_ratio: float = 0.55,
+        cooldown_s: float = 1.0,
         smooth_k: float = 0.20,
-        # Relax horizontal dominance so modest vertical motion doesn't
-        # block wave detection on users who move more up/down while
-        # waving.
-        horiz_vert_ratio: float = 0.7,
     ):
         self.window = window
-        self.amp_thr = amp_thr
+        self.amp_thr_norm = amp_thr_norm
         self.flips_thr = flips_thr
-        self.min_dx = min_dx
+        self.min_dx_norm = min_dx_norm
         self.open_ratio = open_ratio
         self.cooldown_s = cooldown_s
         self.smooth_k = smooth_k
-        self.horiz_vert_ratio = horiz_vert_ratio
 
         self.xbuf = deque(maxlen=window)
-        self.ybuf = deque(maxlen=window)
         self.openbuf = deque(maxlen=window)
-        self._x_smooth = None
-        self._y_smooth = None
         self.cooldown_until = 0.0
+        self._x_smooth = None
 
-    def _dir_flips(self, xs: List[float]) -> int:
-        """Count direction flips in the x-buffer.
-
-        Uses a small epsilon derived from min_dx to ignore micro-jitter but
-        remains sensitive to real direction changes. Returns number of sign
-        changes (a single back-and-forth produces 1 flip).
+    def _crossings(self, xs: List[float], deadband: float) -> int:
         """
-        if len(xs) < 3:
+        Count robust centerline crossings with hysteresis (deadband).
+        This detects macro oscillations (go-and-return) even when per-frame
+        dx is small after smoothing.
+        """
+        if len(xs) < 4:
             return 0
-        flips = 0
-        last_sign = 0
-        eps = max(self.min_dx * 0.2, 1e-6)
-        for i in range(1, len(xs)):
-            dx = xs[i] - xs[i - 1]
-            if abs(dx) < eps:
-                sign = 0
+        mid = (max(xs) + min(xs)) * 0.5
+        crossings = 0
+        state = 0
+        for x in xs:
+            if x > mid + deadband:
+                new_state = 1
+            elif x < mid - deadband:
+                new_state = -1
             else:
-                sign = 1 if dx > 0 else -1
-            if sign == 0:
-                continue
-            if last_sign != 0 and sign != last_sign:
-                flips += 1
-            last_sign = sign
-        return flips
+                new_state = state
+            if state != 0 and new_state != 0 and new_state != state:
+                crossings += 1
+            state = new_state
+        return crossings
 
-    def update(self, center_x: float, center_y: float, is_open: bool, ts: float) -> Tuple[bool, float, float, int, float, float]:
+    def update(self, x: float, is_open: bool, palm_scale: float, ts: float):
         if ts < self.cooldown_until:
-            return (False, 0.0, 0.0, 0, 0.0, 0.0)
+            return (False, 0.0, 0, 0.0, 0.0)
+
+        ps = palm_scale if palm_scale > 1e-6 else 0.1
+
+        # deadband around centerline (scaled by palm size)
+        deadband = (self.min_dx_norm * ps) * 1.2
 
         if self._x_smooth is None:
-            self._x_smooth = center_x
+            self._x_smooth = x
         else:
-            self._x_smooth = (1.0 - self.smooth_k) * self._x_smooth + self.smooth_k * center_x
-
-        if self._y_smooth is None:
-            self._y_smooth = center_y
-        else:
-            self._y_smooth = (1.0 - self.smooth_k) * self._y_smooth + self.smooth_k * center_y
+            self._x_smooth = (1.0 - self.smooth_k) * self._x_smooth + self.smooth_k * x
 
         self.xbuf.append(self._x_smooth)
-        self.ybuf.append(self._y_smooth)
         self.openbuf.append(1 if is_open else 0)
 
         if len(self.xbuf) < self.window:
-            return (False, 0.0, 0.0, 0, 0.0, 0.0)
+            return (False, 0.0, 0, 0.0, 0.0)
 
         xs = list(self.xbuf)
-        ys = list(self.ybuf)
-        amp_x = max(xs) - min(xs)
-        amp_y = max(ys) - min(ys)
-        flips = self._dir_flips(xs)
+        amp = max(xs) - min(xs)
+        amp_norm = amp / ps
+
+        # robust crossings-based flips count
+        flips = self._crossings(xs, deadband=deadband)
+
         open_ratio = sum(self.openbuf) / float(len(self.openbuf))
-        conf = _clamp01(0.55 + 0.45 * min(1.0, amp_x / (self.amp_thr * 1.5)))
+        conf = _clamp01(0.55 + 0.45 * min(1.0, amp_norm / (self.amp_thr_norm * 1.5)))
 
-        # require that horizontal amplitude dominates vertical movement to
-        # avoid false positives when the hand is raised vertically
-        horiz_dominant = (amp_x >= (amp_y * self.horiz_vert_ratio))
-
-        # Primary: horizontal amplitude threshold and horizontal dominance.
-        # Do NOT require flips here so we can be permissive; flips will be
-        # used in downstream checks but should not block detection entirely.
-        primary = (amp_x >= self.amp_thr) and horiz_dominant
-
-        ok = False
-        # Strong case: require flips and open hand ratio (conservative)
-        if (flips >= self.flips_thr) and (open_ratio >= self.open_ratio) and primary:
-            ok = True
-        else:
-            # Very permissive cases: allow wave even with few/no flips when
-            # amplitude is clearly above threshold or the hand is fairly open.
-            # These rules are ordered by preference to avoid firing on small jitter.
-            if primary:
-                # Case A: amplitude well above threshold (clear lateral motion)
-                if amp_x >= (self.amp_thr * 1.2):
-                    ok = True
-                # Case B: at least one flip and some openness
-                elif flips >= 1 and open_ratio >= max(0.2, self.open_ratio * 0.5):
-                    ok = True
-                # Case C: hand reasonably open even if flips are 0
-                elif open_ratio >= max(0.35, self.open_ratio * 0.6):
-                    ok = True
-                # Case D: very small amplitude but many flips (fast tiny wave)
-                elif flips >= (self.flips_thr + 1) and amp_x >= (self.amp_thr * 0.6):
-                    ok = True
-
+        ok = (amp_norm >= self.amp_thr_norm) and (flips >= self.flips_thr) and (open_ratio >= self.open_ratio)
         if ok:
             self.xbuf.clear()
-            self.ybuf.clear()
             self.openbuf.clear()
             self.cooldown_until = ts + self.cooldown_s
-            return (True, amp_x, amp_y, flips, open_ratio, conf)
+            return (True, amp_norm, flips, open_ratio, conf)
 
-        return (False, amp_x, amp_y, flips, open_ratio, conf)
+        return (False, amp_norm, flips, open_ratio, conf)

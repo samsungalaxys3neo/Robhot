@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple, Optional
 
-from gestures import GestureEvent, WaveTracker, finger_states, count_fingers, is_open_palm, is_yolo_shaka, is_peace
+from gestures import GestureEvent, WaveTracker, finger_states, count_fingers, is_open_palm, is_yolo_shaka, is_peace, dist
 
 Vec2 = Tuple[float, float]
 
@@ -18,24 +18,9 @@ class PerHandResult:
 
 class GestureDetector:
     def __init__(self, wave_permissive: bool = False):
-        # If wave_permissive is True use much more permissive WaveTracker params
-        if wave_permissive:
-            wp = {
-                "window": 10,
-                # Make the permissive preset match your recorded magnitudes.
-                # Lower amp_thr so small lateral motions count as waves.
-                "amp_thr": 0.012,
-                "flips_thr": 0,
-                "min_dx": 0.0008,
-                "open_ratio": 0.20,
-                "cooldown_s": 0.4,
-                "smooth_k": 0.12,
-                # Allow vertical component to be larger without blocking.
-                "horiz_vert_ratio": 0.6,
-            }
-            self._wave = {"left": WaveTracker(**wp), "right": WaveTracker(**wp)}
-        else:
-            self._wave = {"left": WaveTracker(), "right": WaveTracker()}
+        # Use normalized WaveTracker for both hands. Keep detection stable
+        # and debuggable by using a single, scale-normalized tracker.
+        self._wave = {"left": WaveTracker(), "right": WaveTracker()}
 
     def _center(self, lms: List[Vec2]) -> Vec2:
         sx = 0.0
@@ -103,15 +88,34 @@ class GestureDetector:
             if is_peace(states):
                 events.append(GestureEvent(name="peace", hand=handed, confidence=score, ts=ts, payload={}))
 
-            open_palm = is_open_palm(states)
-            # prefer wrist x/y for lateral movement detection (more stable than center)
-            wrist_x = lms[0][0] if len(lms) > 0 else center[0]
-            wrist_y = lms[0][1] if len(lms) > 0 else center[1]
-            fired, amp_x, amp_y, flips, open_ratio, conf = self._wave[handed].update(wrist_x, wrist_y, open_palm, ts)
-            # attach live wave stats to per-hand result for debug/inspection
-            per_hand[handed].wave_stats = {"amp_x": amp_x, "amp_y": amp_y, "flips": flips, "open_ratio": open_ratio, "conf": conf}
+            # For wave detection we require the hand to be mostly open, but
+            # allow 4 or 5 fingers (some people keep the thumb slightly in).
+            open_palm = (cnt >= 4)
+            # Prefer palm center (landmark 9) as x source; it's more stable
+            # than the wrist or the centroid of all points.
+            wrist = lms[0] if len(lms) > 0 else center
+            palm = lms[9] if len(lms) > 9 else wrist
+            palm_scale = dist(wrist, palm)
+
+            fired, amp_norm, flips, open_ratio, conf = self._wave[handed].update(
+                x=palm[0], is_open=open_palm, palm_scale=palm_scale, ts=ts
+            )
+            # attach normalized wave stats to per-hand result for debug/inspection
+            per_hand[handed].wave_stats = {"amp_norm": amp_norm, "flips": flips, "open_ratio": open_ratio, "conf": conf}
+            # Lightweight debug: print when there is notable motion or flips
+            if (flips > 0) or (amp_norm >= 0.15):
+                print(f"[WAVE_DBG] ts={ts:.2f} hand={handed} amp={amp_norm:.3f} flips={flips} open_ratio={open_ratio:.2f} fired={fired}")
+
             if fired:
-                events.append(GestureEvent(name="wave", hand=handed, confidence=conf, ts=ts, payload={"amp_x": amp_x, "amp_y": amp_y, "flips": flips, "open_ratio": open_ratio}))
+                events.append(
+                    GestureEvent(
+                        name="wave",
+                        hand=handed,
+                        confidence=conf,
+                        ts=ts,
+                        payload={"amp_norm": amp_norm, "flips": flips, "open_ratio": open_ratio},
+                    )
+                )
 
         left_cnt = per_hand["left"].count if "left" in per_hand else 0
         right_cnt = per_hand["right"].count if "right" in per_hand else 0

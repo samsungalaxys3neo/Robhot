@@ -122,6 +122,12 @@ def main(cam_index: int | None = None, wave_permissive: bool = False):
     record_start_ts = 0.0
     record_max_s = 5.0  # auto-stop after this many seconds
     record_dir = os.path.join(os.getcwd(), "wave_records")
+    # Keep waves visible for a short window even if detection was a
+    # single-frame spike. This prevents the "blink" effect where a
+    # wave is detected but only shows up for a millisecond.
+    wave_display_s = 0.8
+    wave_display_expires = {}
+    wave_display_payloads = {}
 
     while True:
         ok, frame = cap.read()
@@ -164,11 +170,25 @@ def main(cam_index: int | None = None, wave_permissive: bool = False):
 
             perhand_best[side] = chosen.replace("_", " ")
 
-        wave_info = None
+        # Register any new wave events to keep them visible for a short
+        # time window (wave_display_s) even if subsequent frames don't
+        # re-fire the detector.
         for ev in events:
             if ev.name == "wave":
-                wave_info = f"{ev.hand} wave amp_x={ev.payload.get('amp_x', 0):.3f} amp_y={ev.payload.get('amp_y', 0):.3f} flips={ev.payload.get('flips', 0)}"
+                wave_display_expires[ev.hand] = ts + wave_display_s
+                wave_display_payloads[ev.hand] = ev.payload
+
+        # Build a human-readable wave_info from any active wave displays
+        wave_info = None
+        for side, exp in list(wave_display_expires.items()):
+            if ts <= exp and side in wave_display_payloads:
+                p = wave_display_payloads[side]
+                wave_info = f"{side} wave amp={p.get('amp_norm', 0):.3f} flips={p.get('flips', 0)} open={p.get('open_ratio', 0):.2f}"
                 break
+            else:
+                # expired, clean up
+                wave_display_expires.pop(side, None)
+                wave_display_payloads.pop(side, None)
 
         combined = " | ".join([f"{side}: {perhand_best[side]}" for side in ("right", "left") if side in perhand_best])
 
@@ -181,7 +201,8 @@ def main(cam_index: int | None = None, wave_permissive: bool = False):
             for side in ("right", "left"):
                 if side in per_hand and getattr(per_hand[side], "wave_stats", None):
                     ws = per_hand[side].wave_stats
-                    dbg_lines.append(f"{side} amp_x={ws['amp_x']:.3f} amp_y={ws['amp_y']:.3f} flips={ws['flips']} open={ws['open_ratio']:.2f}")
+                    amp = ws.get("amp_norm", ws.get("amp_x", 0))
+                    dbg_lines.append(f"{side} amp={amp:.3f} flips={ws['flips']} open={ws['open_ratio']:.2f}")
             if dbg_lines:
                 dbg_txt = " | ".join(dbg_lines)
                 combined = (combined + " | " + dbg_txt) if combined else dbg_txt
@@ -202,8 +223,7 @@ def main(cam_index: int | None = None, wave_permissive: bool = False):
                         "side": side,
                         "states": getattr(ph, "states", None),
                         "count": getattr(ph, "count", None),
-                        "amp_x": ws.get("amp_x", 0),
-                        "amp_y": ws.get("amp_y", 0),
+                        "amp_norm": ws.get("amp_norm", ws.get("amp_x", 0)),
                         "flips": ws.get("flips", 0),
                         "open_ratio": ws.get("open_ratio", 0),
                         "conf": ws.get("conf", 0),
@@ -237,7 +257,7 @@ def main(cam_index: int | None = None, wave_permissive: bool = False):
                 if record_buffer:
                     # Print collected samples to terminal (human readable)
                     for rec in record_buffer:
-                        print(f"{rec['ts']:.3f}\t{rec['side']}\tstates={rec['states']}\tcount={rec['count']}\tamp_x={rec['amp_x']:.4f}\tamp_y={rec['amp_y']:.4f}\tflips={rec['flips']}\topen={rec['open_ratio']:.3f}\tconf={rec['conf']:.3f}")
+                        print(f"{rec['ts']:.3f}\t{rec['side']}\tstates={rec['states']}\tcount={rec['count']}\tamp={rec['amp_norm']:.4f}\tflips={rec['flips']}\topen={rec['open_ratio']:.3f}\tconf={rec['conf']:.3f}")
 
                     # Save to CSV for easy sharing
                     try:
@@ -245,15 +265,14 @@ def main(cam_index: int | None = None, wave_permissive: bool = False):
                         fname = os.path.join(record_dir, f"wave_record_{int(record_start_ts)}.csv")
                         with open(fname, "w", newline="") as cf:
                             writer = csv.writer(cf)
-                            writer.writerow(["ts", "side", "states", "count", "amp_x", "amp_y", "flips", "open_ratio", "conf"])
+                            writer.writerow(["ts", "side", "states", "count", "amp_norm", "flips", "open_ratio", "conf"])
                             for rec in record_buffer:
                                 writer.writerow([
                                     f"{rec['ts']:.6f}",
                                     rec["side"],
                                     str(rec["states"]),
                                     rec["count"],
-                                    f"{rec['amp_x']:.6f}",
-                                    f"{rec['amp_y']:.6f}",
+                                    f"{rec['amp_norm']:.6f}",
                                     rec["flips"],
                                     f"{rec['open_ratio']:.6f}",
                                     f"{rec['conf']:.6f}",
@@ -272,15 +291,14 @@ def main(cam_index: int | None = None, wave_permissive: bool = False):
                     fname = os.path.join(record_dir, f"wave_record_{int(record_start_ts)}.csv")
                     with open(fname, "w", newline="") as cf:
                         writer = csv.writer(cf)
-                        writer.writerow(["ts", "side", "states", "count", "amp_x", "amp_y", "flips", "open_ratio", "conf"])
+                        writer.writerow(["ts", "side", "states", "count", "amp_norm", "flips", "open_ratio", "conf"])
                         for rec in record_buffer:
                             writer.writerow([
                                 f"{rec['ts']:.6f}",
                                 rec["side"],
                                 str(rec["states"]),
                                 rec["count"],
-                                f"{rec['amp_x']:.6f}",
-                                f"{rec['amp_y']:.6f}",
+                                f"{rec['amp_norm']:.6f}",
                                 rec["flips"],
                                 f"{rec['open_ratio']:.6f}",
                                 f"{rec['conf']:.6f}",
