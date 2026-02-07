@@ -2,4 +2,5 @@ __pycache__/
 *.pyc
 .env
 .DS_Store
+wave_records
 

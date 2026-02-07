@@ -15,7 +15,7 @@ class CameraUI:
             color = (180, 105, 255)  # pink-ish (B,G,R)
         else:
             color = (128, 0, 128)  # dark purple
-
+            
         for x, y in lms:
             cx, cy = to_px((x, y), w, h)
             cv2.circle(frame, (cx, cy), 3, color, -1)
