@@ -148,7 +148,18 @@ class WaveTracker:
         open_ratio = sum(self.openbuf) / float(len(self.openbuf))
         conf = _clamp01(0.55 + 0.45 * min(1.0, amp_norm / (self.amp_thr_norm * 1.5)))
 
-        ok = (amp_norm >= self.amp_thr_norm) and (flips >= self.flips_thr) and (open_ratio >= self.open_ratio)
+        # Primary strict condition: require sufficient amplitude, crossings and open hand
+        ok_primary = (amp_norm >= self.amp_thr_norm) and (flips >= self.flips_thr) and (open_ratio >= self.open_ratio)
+
+        # Secondary (fallback) scoring: if amplitude and crossings together are convincing,
+        # allow firing even if flips < flips_thr. This helps when smoothing reduces frame-to-frame
+        # direction changes but the macro-oscillation is clear.
+        amp_score = amp_norm / max(1e-6, self.amp_thr_norm)
+        flips_score = min(flips / max(1, self.flips_thr), 3.0)
+        combined_score = 0.6 * amp_score + 0.4 * flips_score
+        ok_fallback = (combined_score >= 1.2) and (open_ratio >= self.open_ratio)
+
+        ok = ok_primary or ok_fallback
         if ok:
             self.xbuf.clear()
             self.openbuf.clear()

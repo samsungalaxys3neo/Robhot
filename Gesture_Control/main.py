@@ -12,6 +12,12 @@ from hand_detector import HandDetector
 from gesture_detector import GestureDetector
 from camera import CameraUI
 
+# Optional Arduino hook: if present, use it to send a 'W' when a wave is detected.
+try:
+    import arduino_controller as arduino_ctrl
+except Exception:
+    arduino_ctrl = None
+
 
 def open_camera(preferred_index: int = 0):
     cap = None
@@ -128,6 +134,9 @@ def main(cam_index: int | None = None, wave_permissive: bool = False):
     wave_display_s = 0.8
     wave_display_expires = {}
     wave_display_payloads = {}
+    # per-gesture cooldown to avoid spamming Arduino/LCD
+    gesture_last_sent = {}
+    gesture_send_cooldown = 1.0  # seconds
 
     while True:
         ok, frame = cap.read()
@@ -174,9 +183,21 @@ def main(cam_index: int | None = None, wave_permissive: bool = False):
         # time window (wave_display_s) even if subsequent frames don't
         # re-fire the detector.
         for ev in events:
+            # Keep wave HUD visible briefly
             if ev.name == "wave":
                 wave_display_expires[ev.hand] = ts + wave_display_s
                 wave_display_payloads[ev.hand] = ev.payload
+
+            # Send a message/command to Arduino for notable gestures (not 'count')
+            if arduino_ctrl is not None and ev.name != "count":
+                last = gesture_last_sent.get(ev.name, 0.0)
+                if ts - last >= gesture_send_cooldown:
+                    try:
+                        # send_gesture handles mapping and also triggers servo for 'wave'
+                        arduino_ctrl.send_gesture(ev.name, getattr(ev, 'payload', None))
+                        gesture_last_sent[ev.name] = ts
+                    except Exception as e:
+                        print(f"Failed to send Arduino gesture '{ev.name}': {e}")
 
         # Build a human-readable wave_info from any active wave displays
         wave_info = None
