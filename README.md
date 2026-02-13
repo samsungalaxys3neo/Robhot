@@ -26,8 +26,5 @@ Robhot/
          servo_control.h
          servo_control.cpp
       
-
-
-
-
 Per ora: camera preferita quella del pc (da cambiare successivamente in fase di automazione robhot)
+

@@ -63,12 +63,12 @@ def send_lcd_message(line1: str, line2: str = ""):
 def send_gesture(gesture_name: str, payload: dict | None = None):
     """High-level: send an appropriate LCD message and optional wave action for a gesture."""
     mapping = {
-        "wave": ("Ciao!", "Saluto rilevato"),
-        "thumbs_up": ("Bravo!", "Pollice su"),
-        "middle_finger": ("Vaffanculo cess*", ""),
-        "peace": ("Pace", "✌️"),
-        "open_palm": ("Palmo aperto", ""),
-        "yolo": ("Yolo", "Divertiti!"),
+        "wave": ("Ciao,", "Nigger"),
+        "thumbs_up": ("Grazie del", "like!"),
+        "middle_finger": ("F*ck you", "Nigger"),
+        "peace": ("Peace", "hello"),
+        "open_palm": ("STOP!", ""),
+        "yolo": ("Yolo", "Californiaaa!"),
     }
 
     # If the gesture is a count like '3 fingers' send that directly
