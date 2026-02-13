@@ -8,12 +8,26 @@ Per ora gli step sono solo:
     * risponde ai gesti con sequenze di "BEEEEP" e piccolo messaggio su schermo LED;
     * piccolo braccio robotico che saluta!
 
-gesture_detector/
-  main.py
-  camera.py
-  hand_detector.py
-  gesture_detector.py
-  gestures.py
+Robhot/
+
+   gesture_detector/
+     main.py
+     camera.py
+     hand_detector.py
+     gesture_detector.py
+     gestures.py
+     arduino_control.py
+     
+   arduino_control/
+      lcd/
+         lcd_control.h
+         lcd_control.cpp
+      servo/
+         servo_control.h
+         servo_control.cpp
+      
+
+
 
 
 Per ora: camera preferita quella del pc (da cambiare successivamente in fase di automazione robhot)
