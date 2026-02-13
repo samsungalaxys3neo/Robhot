@@ -26,6 +26,6 @@ Robhot/
       servo/
          servo_control.h
          servo_control.cpp
-```plaintext
+plaintext```
 Per ora: camera preferita quella del pc (da cambiare successivamente in fase di automazione robhot)
 
