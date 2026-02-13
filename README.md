@@ -8,7 +8,7 @@ Per ora gli step sono solo:
     * risponde ai gesti con sequenze di "BEEEEP" e piccolo messaggio su schermo LED;
     * piccolo braccio robotico che saluta!
 
-```plaintext
+```
 Robhot/
 
    gesture_detector/
@@ -26,6 +26,7 @@ Robhot/
       servo/
          servo_control.h
          servo_control.cpp
-plaintext```
+```
+
 Per ora: camera preferita quella del pc (da cambiare successivamente in fase di automazione robhot)
 
