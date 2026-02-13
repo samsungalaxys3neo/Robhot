@@ -28,7 +28,7 @@ Robhot/
      gestures.py
      arduino_control.py
      
-   arduino_control/
+   arduino_control/ //frame
       lcd/
          lcd_control.h
          lcd_control.cpp
