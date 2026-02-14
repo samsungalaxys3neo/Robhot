@@ -3,4 +3,5 @@ __pycache__/
 .env
 .DS_Store
 wave_records
+node_modules/
 
