@@ -13,6 +13,42 @@ Robhot è il mio Robot Hot (perchè è mio) che:
 
 L'obiettivo è costruire tutto in modo modulare e scalabile così che alla fine Nicola Tesla mi bacerà.
 
+## Architettura
+
+```
+Robhot/
+
+   gesture_detector/
+     main.py
+     camera.py
+     hand_detector.py
+     gesture_detector.py
+     gestures.py
+     arduino_control.py
+     
+   arduino_control/ 
+      lcd/
+         lcd_control.h
+         lcd_control.cpp
+      servo/
+         servo_control.h
+         servo_control.cpp
+    app/
+        backend/
+            src/
+                index.js
+            node_modules/
+                ...
+            package-lock.json
+            package.json
+        frontend/
+            app.js
+            index.html
+    .gitignore
+    DEVLOG.md
+    README.md
+```
+
 ## Fase 1 - Gesture detection 
 
 Ho creato uno script `gesture_detector`in Python usando MediaPipe e OpenCV che rileva i seguenti gesti:
@@ -61,18 +97,18 @@ Control Server (Node.js su Mac)
 Arduino (Firmware)
 ⇅ Hardware (LCD, servo, sensori)
 
-* Websocket: 
+### Websocket: 
 - HTTP è request/response, quindi si chiederebbe le cose ogni volta
 - usando WS lo lasciamo aperto e permette push realtime per telemetria eventi e log
 
-* Setup Node.js su Mac:
+### Setup Node.js su Mac:
 - installato dal sito ufficiale
 - verificato con:  
     - node -v
     - npm - v
 - Node serve per il runtime del control server (backend), mentre npm per la gestione dipendenze (ws, serial, express)
 
-* Creazione backend: 
+### Creazione backend: 
 - Situato dentro `Robhot/app/`
 - Comandi: 
     - npm init -y
@@ -83,10 +119,10 @@ Arduino (Firmware)
     - `package-lock.json` blocca le versioni (riproducibilità)
     - `node_modules/` sono librerie installate (messo in .gitignore)
 
-* Creazione frontend: 
+### Creazione frontend: 
 - ho creato il frontend (molto basico lol)
 
-* Collegamento Arduino via seriale (bridge vero):
+### Collegamento Arduino via seriale (bridge vero):
 - Arduino collegato via usb al mac tramite porta seriale `/dev/tty.usbmodem1301`
 - baud rate -> 115200
 - Nota: sempre chiudere serial monitor di arduino (un solo programma alla volta può usare la porta seriale)
