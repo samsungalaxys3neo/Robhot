@@ -127,5 +127,31 @@ Arduino (Firmware)
 - baud rate -> 115200
 - Nota: sempre chiudere serial monitor di arduino (un solo programma alla volta può usare la porta seriale)
 
+## Fase 5: Node.js diventa il boss della seriale 
 
+Vorrei questo:
+Frontend ⇄ WS ⇄ Node (unico owner seriale) ⇄ Serial ⇄ Arduino
+Python gesture_detector → (eventi) → Node
+
+### Modificare Python (non usa più seriale)
+– Dentro `main.py` invece di chiamare `arduino_control.py` faccio si che il programma stampi su **stdout** gli eventi
+    – Esempio: quando riconosce un gesto stampa una riga tipo
+    `EV GESTURE WAVE`
+    `EV GESTURE OPEN_PALM`
+
+### Node avvia Python e legge le righe 
+
+- Creo file `app/backend/src/gesture_service.js`
+- Importo in `index.js`
+- Aggiungo una funzione broadcast e avvio il servizio 
+Node lancia python, legge quello che stampa, manda al browser (log in realtime) e se è una gesture, la inoltra ad arduino come GESTURE
+
+### Rendo controllabile il gesture service
+
+- Modifico il file `gesture_service.js` per far ritornare anche isRunning e gestire stop bene
+- Aggiungo API Start/Stop/Status in `index.js`, adesso Python non parte più da solo!
+
+## Fase 6: miglioro gesture_detector
+- Non gli faccio spammare count se non vede nessuna mano 
+- Non deve spammare i gesti più di una volta quando li detecta (ancor meglio: bottone che visualizza il gesto per tot tempo che appare)
 

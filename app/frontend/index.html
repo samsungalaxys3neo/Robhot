@@ -3,17 +3,90 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>RobHot WS Test</title>
+    <title>RobHot Control Panel</title>
+
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background: #f4f4f4;
+        margin: 20px;
+      }
+
+      h1 {
+        margin-bottom: 10px;
+      }
+
+      .section {
+        background: white;
+        padding: 15px;
+        margin-bottom: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      }
+
+      .controls {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      button {
+        padding: 8px 14px;
+        cursor: pointer;
+      }
+
+      #log {
+        height: 250px;
+        overflow-y: auto;
+        background: #111;
+        color: #0f0;
+        padding: 10px;
+        font-family: monospace;
+        font-size: 14px;
+        border-radius: 6px;
+      }
+
+      input {
+        padding: 6px;
+      }
+    </style>
   </head>
+
   <body>
-    <h1>RobHot WebSocket Test</h1>
-    <div id="status">Connecting...</div>
 
-    <input id="msg" placeholder="scrivi un messaggio" />
-    <button id="send">Send</button>
+    <h1>RobHot Control Panel</h1>
 
-    <pre id="log"></pre>
+    <div class="section">
+      <strong>WebSocket status:</strong>
+      <span id="status">Connecting...</span>
+    </div>
+
+    <div class="section">
+      <div class="controls">
+        <button id="startGesture">Start gesture</button>
+        <button id="stopGesture">Stop gesture</button>
+        <span id="gestureStatus">Status: unknown</span>
+      </div>
+    </div>
+
+    <div id="gestureBadge" style="display:none; margin-top:10px; padding:10px; border-radius:8px; background:#222; color:#fff; font-family:monospace;">
+      GESTURE: <span id="gestureName"></span>
+    </div>
+
+    <div class="section">
+      <div class="controls">
+        <input id="msg" placeholder="Scrivi comando manuale..." />
+        <button id="send">Send</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <strong>Log</strong>
+      <pre id="log"></pre>
+    </div>
 
     <script src="app.js"></script>
+
   </body>
 </html>

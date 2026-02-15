@@ -7,16 +7,22 @@ import re
 import os
 import json
 import csv
+import sys
 
 from hand_detector import HandDetector
 from gesture_detector import GestureDetector
 from camera import CameraUI
 
 # Optional Arduino hook: if present, use it to send a 'W' when a wave is detected.
-try:
-    import arduino_controller as arduino_ctrl
-except Exception:
-    arduino_ctrl = None
+#try:
+#    import arduino_controller as arduino_ctrl
+#except Exception:
+#    arduino_ctrl = None
+arduino_ctrl = None
+
+def emit_gesture(name: str):
+    sys.stdout.write(f"EV GESTURE {name}\n")
+    sys.stdout.flush()
 
 
 def open_camera(preferred_index: int = 0):
@@ -182,22 +188,31 @@ def main(cam_index: int | None = None, wave_permissive: bool = False):
         # Register any new wave events to keep them visible for a short
         # time window (wave_display_s) even if subsequent frames don't
         # re-fire the detector.
-        for ev in events:
-            # Keep wave HUD visible briefly
-            if ev.name == "wave":
-                wave_display_expires[ev.hand] = ts + wave_display_s
-                wave_display_payloads[ev.hand] = ev.payload
+        if not hands:
+            events = []
+        else:
+
+            for ev in events:
+                # Keep wave HUD visible briefly
+                if ev.name == "count":
+                    continue    
+                emit_gesture(ev.name) # chiamo la funzione per arduino per ogni gesto
+
+                if ev.name == "wave":
+                  wave_display_expires[ev.hand] = ts + wave_display_s
+                  wave_display_payloads[ev.hand] = ev.payload
 
             # Send a message/command to Arduino for notable gestures (not 'count')
-            if arduino_ctrl is not None and ev.name != "count":
-                last = gesture_last_sent.get(ev.name, 0.0)
-                if ts - last >= gesture_send_cooldown:
-                    try:
-                        # send_gesture handles mapping and also triggers servo for 'wave'
-                        arduino_ctrl.send_gesture(ev.name, getattr(ev, 'payload', None))
-                        gesture_last_sent[ev.name] = ts
-                    except Exception as e:
-                        print(f"Failed to send Arduino gesture '{ev.name}': {e}")
+            
+            #if arduino_ctrl is not None and ev.name != "count":
+            #    last = gesture_last_sent.get(ev.name, 0.0)
+            #    if ts - last >= gesture_send_cooldown:
+            #        try:
+            #            # send_gesture handles mapping and also triggers servo for 'wave'
+            #            arduino_ctrl.send_gesture(ev.name, getattr(ev, 'payload', None))
+            #           gesture_last_sent[ev.name] = ts
+            #        except Exception as e:
+            #            print(f"Failed to send Arduino gesture '{ev.name}': {e}")
 
         # Build a human-readable wave_info from any active wave displays
         wave_info = None

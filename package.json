@@ -1,0 +1,9 @@
+{
+  "name": "robhot",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node src/index.js",
+    "backend": "node app/backend/src/index.js"
+  }
+}
