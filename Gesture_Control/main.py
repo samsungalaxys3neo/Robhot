@@ -162,7 +162,8 @@ def main(cam_index: int | None = None, wave_permissive: bool = False):
             if h["handedness"] in ("left", "right"):
                 ui.draw_hand(frame, h["landmarks"], h["handedness"])
 
-        priority = ["wave", "thumbs_up", "middle_finger", "peace", "open_palm", "yolo"]
+        # include 'rock' so the rock-and-roll gesture is shown on the HUD
+        priority = ["wave", "thumbs_up", "middle_finger", "rock", "peace", "open_palm", "yolo"]
         perhand_best = {}
 
         for side in ("right", "left"):

@@ -17,10 +17,18 @@ class PerHandResult:
 
 
 class GestureDetector:
-    def __init__(self, wave_permissive: bool = False):
+    def __init__(self, wave_permissive: bool = False, *, min_score: float = 0.50, min_palm_scale: float = 0.04, center_margin: float = 0.02, suppress_open_after_wave_s: float = 1.5):
+        # Configuration: tune to avoid false positives (shoulder / tiny detections)
+        self.min_score = float(min_score)
+        self.min_palm_scale = float(min_palm_scale)
+        self.center_margin = float(center_margin)
+        self.suppress_open_after_wave_s = float(suppress_open_after_wave_s)
+
         # Use normalized WaveTracker for both hands. Keep detection stable
         # and debuggable by using a single, scale-normalized tracker.
         self._wave = {"left": WaveTracker(), "right": WaveTracker()}
+        # per-hand timestamp when a wave was last fired; used to suppress open_palm
+        self._last_wave_ts = {"left": -1e9, "right": -1e9}
 
     def _center(self, lms: List[Vec2]) -> Vec2:
         sx = 0.0
@@ -49,6 +57,14 @@ class GestureDetector:
         # extended or not (user may show middle + thumb).
         return states["middle"] and (not states["index"]) and (not states["ring"]) and (not states["pinky"])
 
+    def _rock(self, states: Dict[str, bool]) -> bool:
+        """Rock-and-roll: index + pinky extended, middle and ring down.
+
+        Thumb may be either up or down (user preference). We treat both as
+        valid rock gestures per request.
+        """
+        return states.get("index", False) and states.get("pinky", False) and (not states.get("middle", False)) and (not states.get("ring", False))
+
     def process(self, hands: List[Dict[str, Any]], ts: float) -> Tuple[List[GestureEvent], Dict[str, PerHandResult], int]:
         per_hand: Dict[str, PerHandResult] = {}
         events: List[GestureEvent] = []
@@ -72,21 +88,52 @@ class GestureDetector:
                 center=center,
             )
 
-            if is_open_palm(states):
-                events.append(GestureEvent(name="open_palm", hand=handed, confidence=score, ts=ts, payload={"count": cnt}))
+            # Compute wrist/palm and palm_scale early (used for sanity checks)
+            wrist = lms[0] if len(lms) > 0 else center
+            palm = lms[9] if len(lms) > 9 else wrist
+            palm_scale = dist(wrist, palm)
 
-            if self._thumbs_up(lms, states):
-                events.append(GestureEvent(name="thumbs_up", hand=handed, confidence=score, ts=ts, payload={}))
+            # Sanity checks: avoid false positives when detection is weak or hand is off-frame
+            center_x, center_y = center
+            in_center = (
+                (center_x > self.center_margin)
+                and (center_x < (1.0 - self.center_margin))
+                and (center_y > self.center_margin)
+                and (center_y < (1.0 - self.center_margin))
+            )
 
-            if self._middle_finger(states):
-                events.append(GestureEvent(name="middle_finger", hand=handed, confidence=score, ts=ts, payload={}))
+            valid_hand = (score >= self.min_score) and (palm_scale >= self.min_palm_scale) and in_center
 
-            if is_yolo_shaka(states):
-                events.append(GestureEvent(name="yolo", hand=handed, confidence=score, ts=ts, payload={"style": "shaka"}))
+            if not valid_hand:
+                # reset wave buffers for this hand to avoid leftover partial buffers
+                try:
+                    self._wave[handed].xbuf.clear()
+                    self._wave[handed].openbuf.clear()
+                except Exception:
+                    pass
+                # do not register gesture events for invalid/weak detections
+            else:
+                if is_open_palm(states):
+                    # suppress open_palm for a short period after a detected wave
+                    if ts - self._last_wave_ts.get(handed, -1e9) >= self.suppress_open_after_wave_s:
+                        events.append(GestureEvent(name="open_palm", hand=handed, confidence=score, ts=ts, payload={"count": cnt}))
 
-            # peace gesture (index + middle)
-            if is_peace(states):
-                events.append(GestureEvent(name="peace", hand=handed, confidence=score, ts=ts, payload={}))
+                if self._thumbs_up(lms, states):
+                    events.append(GestureEvent(name="thumbs_up", hand=handed, confidence=score, ts=ts, payload={}))
+
+                if self._middle_finger(states):
+                    events.append(GestureEvent(name="middle_finger", hand=handed, confidence=score, ts=ts, payload={}))
+
+                if is_yolo_shaka(states):
+                    events.append(GestureEvent(name="yolo", hand=handed, confidence=score, ts=ts, payload={"style": "shaka"}))
+
+                # peace gesture (index + middle)
+                if is_peace(states):
+                    events.append(GestureEvent(name="peace", hand=handed, confidence=score, ts=ts, payload={}))
+
+                # rock-and-roll (index + pinky), thumb may be either up/down
+                if self._rock(states):
+                    events.append(GestureEvent(name="rock", hand=handed, confidence=score, ts=ts, payload={}))
 
             # For wave detection we require the hand to be mostly open, but
             # allow 4 or 5 fingers (some people keep the thumb slightly in).
@@ -116,6 +163,12 @@ class GestureDetector:
                         payload={"amp_norm": amp_norm, "flips": flips, "open_ratio": open_ratio},
                     )
                 )
+                # record wave time and remove any open_palm that was added earlier this frame
+                try:
+                    self._last_wave_ts[handed] = ts
+                    events = [e for e in events if not (e.hand == handed and e.name == "open_palm")]
+                except Exception:
+                    pass
 
         left_cnt = per_hand["left"].count if "left" in per_hand else 0
         right_cnt = per_hand["right"].count if "right" in per_hand else 0

@@ -152,6 +152,14 @@ Node lancia python, legge quello che stampa, manda al browser (log in realtime) 
 - Aggiungo API Start/Stop/Status in `index.js`, adesso Python non parte più da solo!
 
 ## Fase 6: miglioro gesture_detector
+
 - Non gli faccio spammare count se non vede nessuna mano 
 - Non deve spammare i gesti più di una volta quando li detecta (ancor meglio: bottone che visualizza il gesto per tot tempo che appare)
+- Migliorato wave: se lo detecta aspetta 1,5 secondi prima di dirmi "open palm"
+
+Quindi -> **Recap architettura**:
+Browser ⇄ WebSocket ⇄ Node ⇄ Serial ⇄ Arduino ⇄ Servo
+*Python Gesture ⇄ Node ⇄ Browser
+
+
 
