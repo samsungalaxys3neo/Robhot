@@ -4,26 +4,82 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>RobHot Panel</title>
+    <link rel="stylesheet" href="/styles.css" />
     <script src="/app.js" defer></script>
   </head>
+
   <body>
-    <h1>RobHot Panel</h1>
+    <header class="topbar">
+      <div class="brand">
+        <div class="dot"></div>
+        <div>
+          <h1 class="brandTitle">Robhot</h1>
+          <!-- welcome banner: code-font typewriter -->
+          <div class="welcome tw" aria-hidden="true"><span class="welcomeSym">&gt;</span>Benvenuta, samsungalaxys3neo</div>
+        </div>
+      </div>
 
-    <div>
-      <button id="startGesture">Start Gesture</button>
-      <button id="stopGesture">Stop Gesture</button>
-      <span id="gestureStatus">Status: ...</span>
-    </div>
+      <div class="conn">
+        <span class="pill" id="wsPill"></span>
+        <span class="pill" id="gestureStatus"></span>
+      </div>
+    </header>
 
-    <div id="gestureBadge" style="display:none; padding:8px; border:1px solid #000; margin-top:12px;">
-      Gesture: <b id="gestureName"></b>
-    </div>
+    <main class="container">
+      <section class="grid">
+        <div class="card">
+          <div class="cardHead">
+            <h2>Gesture</h2>
+            <div class="actions">
+              <button class="btn" id="startGesture" type="button">Start</button>
+              <button class="btn btnGhost" id="stopGesture" type="button">Stop</button>
+            </div>
+          </div>
 
-    <div style="margin-top:16px;">
-      <input id="cmdInput" placeholder="Es: PING / MOVE:90 / LCD:Ciao" />
-      <button id="sendCmd">Invia</button>
-    </div>
+          <div class="hint">Mostra badge quando arriva <code>EV GESTURE ...</code> dal Python.</div>
 
-    <pre id="log" style="margin-top:16px; padding:12px; border:1px solid #ccc; height:280px; overflow:auto;"></pre>
+          <div id="gestureBadge" class="badge" style="display:none;">
+            <span class="badgeDot"></span>
+            <span>Gesture:</span>
+            <b id="gestureName"></b>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="cardHead">
+            <h2>Comandi</h2>
+            <div class="actions">
+              <button class="btn btnGhost" id="btnPing" type="button">PING</button>
+              <button class="btn btnGhost" id="btnHello" type="button">LCD Hello</button>
+            </div>
+          </div>
+
+          <form class="cmd" autocomplete="off">
+            <input id="cmdInput" placeholder="Es: PING / MOVE:90 / LCD:Ciao" spellcheck="false" inputmode="text" />
+            <button class="btn" id="sendCmd" type="submit">Invia</button>
+          </form>
+
+          <div class="hint">Shortcut: <b>Enter</b> invia. <b>Ctrl/⌘ + L</b> pulisce log.</div>
+          <!-- shortcut chips removed per user request -->
+        </div>
+
+        <div class="card cardWide">
+          <div class="cardHead">
+            <h2>Log</h2>
+            <div class="actions">
+              <label class="toggle">
+                <input type="checkbox" id="autoScroll" checked />
+                <span>Auto-scroll</span>
+              </label>
+              <button class="btn btnGhost" id="clearLog" type="button">Clear</button>
+            </div>
+          </div>
+
+          <pre id="log" class="log" aria-live="polite"></pre>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" class="toast" style="display:none;"></div>
   </body>
 </html>
