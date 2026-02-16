@@ -17,6 +17,13 @@ window.addEventListener("DOMContentLoaded", () => {
 
   const btnPing = document.getElementById("btnPing");
   const btnHello = document.getElementById("btnHello");
+  const camPreview = document.getElementById("camPreview");
+  const browserCams = document.getElementById("browserCams");
+  const serverCams = document.getElementById("serverCams");
+  const applyServerCamBtn = document.getElementById("applyServerCam");
+  const refreshServerCamsBtn = document.getElementById("refreshServerCams");
+  const stopPreviewBtn = document.getElementById("stopPreviewBtn");
+  const startPreviewBtn = document.getElementById("startPreviewBtn");
 
   let badgeTimer = null;
   let ws = null;
@@ -220,15 +227,7 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  async function startGesture() {
-    try {
-      await fetch("/api/gesture/start", { method: "POST" });
-      toast("Gesture avviate");
-      refreshStatus();
-    } catch {
-      toast("Errore start");
-    }
-  }
+  
 
   async function stopGesture() {
     try {
@@ -265,6 +264,80 @@ window.addEventListener("DOMContentLoaded", () => {
     log("SELECT 1", "sys");
     console.assert(logEl.innerHTML !== before, "log() should prepend a line");
   }
+
+  // Camera preview + server camera management
+  let currentStream = null;
+
+  async function enumerateBrowserDevices() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return [];
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cams = devices.filter(d => d.kind === 'videoinput');
+      browserCams.innerHTML = cams.map(d => `<option value="${d.deviceId}">${d.label || 'Camera ' + d.deviceId}</option>`).join('');
+      return cams;
+    } catch (err) {
+      console.warn('enumerateDevices failed', err);
+      return [];
+    }
+  }
+
+  async function startBrowserPreview(deviceId) {
+    try {
+      if (currentStream) {
+        currentStream.getTracks().forEach(t => t.stop());
+        currentStream = null;
+      }
+      const constraints = { video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode: 'user' } };
+      currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+      camPreview.srcObject = currentStream;
+    } catch (err) {
+      console.warn('getUserMedia failed', err);
+      toast('Permesso camera negato o dispositivo non disponibile');
+    }
+  }
+
+  function stopBrowserPreview() {
+    try {
+      if (currentStream) {
+        currentStream.getTracks().forEach(t => t.stop());
+        currentStream = null;
+      }
+      if (camPreview) camPreview.srcObject = null;
+      toast('Preview fermata');
+    } catch (err) {
+      console.warn('stopBrowserPreview failed', err);
+    }
+  }
+
+  async function fetchServerCams() {
+    try {
+      const r = await fetch('/api/cameras');
+      const j = await r.json();
+      const cams = j.cameras || [];
+      const parts = [];
+      if (j.arduino_camera) parts.push({ value: `arduino:${j.arduino_camera}`, label: `Arduino: ${j.arduino_camera}` });
+      for (const i of cams) parts.push({ value: String(i), label: `Camera ${i}` });
+      serverCams.innerHTML = parts.map(p => `<option value="${p.value}">${p.label}</option>`).join('');
+      if (parts.length === 0) serverCams.innerHTML = '<option value="">(no cameras)</option>';
+    } catch (err) {
+      serverCams.innerHTML = '<option value="">(error)</option>';
+    }
+  }
+
+  async function applyServerCamera() {
+    const val = serverCams?.value;
+    if (!val) return toast('Seleziona una camera server valida');
+    try {
+      const payload = { index: (val.startsWith('arduino:') ? val : Number(val)) };
+      const r = await fetch('/api/gesture/select_camera', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const j = await r.json();
+      if (j.ok) toast('Camera server impostata: ' + j.value);
+      else toast('Errore impostazione camera server');
+    } catch (err) {
+      toast('Errore impostazione camera server');
+    }
+  }
+
 
   wsPill.innerHTML = pillHtml("WS", "booting");
   statusEl.innerHTML = pillHtml("gesture()", "booting");
@@ -304,6 +377,97 @@ window.addEventListener("DOMContentLoaded", () => {
 
   btnPing?.addEventListener("click", () => sendCmd("PING"));
   btnHello?.addEventListener("click", () => sendCmd("LCD:Hello"));
+
+  // camera UI wiring
+  browserCams?.addEventListener('change', () => startBrowserPreview(browserCams.value));
+  applyServerCamBtn?.addEventListener('click', () => applyServerCamera());
+  refreshServerCamsBtn?.addEventListener('click', () => fetchServerCams());
+  stopPreviewBtn?.addEventListener('click', async () => {
+    // Attempt to stop server-side detector first so the device is free
+    try {
+      await fetch('/api/gesture/stop', { method: 'POST' });
+    } catch (e) {
+      console.warn('Failed to stop gesture service before releasing camera', e);
+    }
+
+    // Always stop browser preview immediately
+    stopBrowserPreview();
+
+    // If a numeric server camera is selected, poll the server-side camera check
+    const selected = serverCams?.value;
+    if (selected && !selected.startsWith('arduino:')) {
+      const idx = Number(selected);
+      const start = performance.now();
+      let freed = false;
+      // Poll up to 4s for faster release
+      while (performance.now() - start < 4000) {
+        try {
+          const r = await fetch(`/api/camera/check?index=${idx}`, { cache: 'no-store' });
+          const j = await r.json();
+          if (j.ok) { freed = true; break; }
+        } catch (e) {
+          // ignore and retry
+        }
+        await new Promise(res => setTimeout(res, 200));
+      }
+
+      if (freed) {
+        toast('Preview fermata — camera rilasciata');
+      } else {
+        toast('Preview fermata — ma camera ancora occupata');
+      }
+      return;
+    }
+
+    // fallback: just notify preview stopped
+    toast('Preview fermata');
+  });
+  startPreviewBtn?.addEventListener('click', () => startBrowserPreview(browserCams?.value));
+
+  // when starting gesture, include selected server camera so Python uses it
+  async function startGesture() {
+    try {
+      // stop browser preview so the camera device is released and its LED turns off
+      stopBrowserPreview();
+
+      // if we have a numeric camera selected on the server, wait up to 3s for it to be openable
+      const selected = serverCams?.value;
+      if (selected && !selected.startsWith('arduino:')) {
+        const idx = Number(selected);
+        const start = performance.now();
+        let ok = false;
+        while (performance.now() - start < 3000) {
+          try {
+            const r = await fetch(`/api/camera/check?index=${idx}`, { cache: 'no-store' });
+            const j = await r.json();
+            if (j.ok) { ok = true; break; }
+          } catch (e) {}
+          // wait a short bit before retrying
+          await new Promise(res => setTimeout(res, 200));
+        }
+        if (!ok) {
+          toast('Attenzione: la camera server non è ancora libera. Provo comunque ad avviare.');
+        }
+      }
+
+      const body = {};
+      if (serverCams && serverCams.value) body.camera = (serverCams.value.startsWith('arduino:') ? serverCams.value : Number(serverCams.value));
+      await fetch("/api/gesture/start", { method: "POST", headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      toast("Gesture avviate");
+      refreshStatus();
+    } catch {
+      toast("Errore start");
+    }
+  }
+
+  // initialize camera lists and preview
+  (async () => {
+    await enumerateBrowserDevices();
+    // try to softly request permission to get labels (best-effort)
+    try { await navigator.mediaDevices.getUserMedia({ video: true }); await enumerateBrowserDevices(); } catch (e) {}
+    if (browserCams && browserCams.value) startBrowserPreview(browserCams.value);
+    fetchServerCams();
+  })();
 
   document.addEventListener("keydown", (e) => {
     const isMac = navigator.platform.toLowerCase().includes("mac");
