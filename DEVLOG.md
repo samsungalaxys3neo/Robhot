@@ -165,6 +165,63 @@ Browser ⇄ WebSocket ⇄ Node ⇄ Serial ⇄ Arduino ⇄ Servo
 - fatto carino sito
 - ho rotto tutto e sono tornata indietro non mi va di appuntarmi ciò che ho perso.
 
-## Fase 9: 
+## Fase 9: Lista spesa
+
+* base con ruoote (la prendo già pronta- kit chassis 2wd)
+    * 2 motori DC
+    * 2 ruote
+    * 1 ruota folle
+    * piastra superiore
+
+* Driver motori (compatto)
+    - TB6612FNG
+
+* cervello 
+    - ESP32 DevKitV1 (x2)
+
+* camera
+    - esp32-cam (FTDI USB-TTL)
+
+* schermo testa
+    - OLED 0.96” SSD1306 I2C
+
+* audio 
+    - microfono: INMP441 (I2S)
+    - amplificatore: MAX98357A (I2S)
+    - speaker: 8Ω 3W
+
+* braccia
+    - SG90 Micro Servo (x2)
+
+* alimentazione
+    - 4 x 18650
+    - porta batterie 2s
+    - bms 2s
+    - buck converter LM2596
+    - interruttore
+
+* cablaggio
+    - kit JST (2pin+3pin)
+    - cavo silicone 22awg
+    - guaina termorestringente
+    - basetta millefori piccola
+    - distanziali m3+ viti
+    - fascette
+    - saldatrice (chat dice saldatore 60w regolabile, punta fine intercambiabile, con supporto + spugnetta)
+    - stagno 0.6-0.8mm, con anima flussante (rosin core)
+    - teonchesina piccola 
+    - pinzette
+    - spellafili
+    - cacciavite di precisione (m2/m3)
+    - multimetro 
+
+* extra
+    - pulsanti (power,mode, talk)
+    - LED RGB WS2812
+    - buzzer passive
+    - sensore ultrasuoni HC-SR04
+
+Spesa fatta, 42,48€ da Aliexpress!
+
 
 
