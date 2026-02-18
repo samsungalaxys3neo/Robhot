@@ -161,7 +161,10 @@ Quindi -> **Recap architettura**:
 Browser ⇄ WebSocket ⇄ Node ⇄ Serial ⇄ Arduino ⇄ Servo
 *Python Gesture ⇄ Node ⇄ Browser
 
-## Fase 7: upgrade html 
+## Fase 7/8: upgrade html 
+- fatto carino sito
+- ho rotto tutto e sono tornata indietro non mi va di appuntarmi ciò che ho perso.
 
+## Fase 9: 
 
 
