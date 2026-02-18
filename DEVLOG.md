@@ -222,6 +222,7 @@ Browser ⇄ WebSocket ⇄ Node ⇄ Serial ⇄ Arduino ⇄ Servo
     - sensore ultrasuoni HC-SR04
 
 Spesa fatta, 42,48€ da Aliexpress!
-
-
++ 11.41€ perchè ho sbagliato e invece di prendere esp32 ho preso due breakout boards :D
+= 53,99€
+(spoiler, potevo prendere un solo microcontrollore ma vabbe)
 
