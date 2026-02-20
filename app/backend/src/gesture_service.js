@@ -4,7 +4,7 @@ const path = require("path");
 function startGestureService(onLine) {
   const scriptPath = path.join(__dirname, "../../../gesture_control/main.py");
 
-  const proc = spawn("python3", ["-u", scriptPath], {
+  const proc = spawn("python3", ["-u", scriptPath, "--headless", "--emit-popup-debug"], {
     stdio: ["ignore", "pipe", "pipe"]
   });
 

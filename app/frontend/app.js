@@ -5,7 +5,8 @@ window.addEventListener("DOMContentLoaded", () => {
   const logEl = document.getElementById("log");
 
   const badge = document.getElementById("gestureBadge");
-  const badgeName = document.getElementById("gestureName");
+  const badgeRight = document.getElementById("gestureRight");
+  const badgeLeft = document.getElementById("gestureLeft");
 
   const cmdInput = document.getElementById("cmdInput");
   const sendBtn = document.getElementById("sendCmd");
@@ -24,6 +25,15 @@ window.addEventListener("DOMContentLoaded", () => {
   const refreshServerCamsBtn = document.getElementById("refreshServerCams");
   const stopPreviewBtn = document.getElementById("stopPreviewBtn");
   const startPreviewBtn = document.getElementById("startPreviewBtn");
+  const toggleGestureDebugBtn = document.getElementById("toggleGestureDebug");
+  const gestureDebugEl = document.getElementById("gestureDebug");
+  const gestureDebugLogEl = document.getElementById("gestureDebugLog");
+  const dbgPopupLeftEl = document.getElementById("dbgPopupLeft");
+  const dbgPopupRightEl = document.getElementById("dbgPopupRight");
+  const dbgPopupCountEl = document.getElementById("dbgPopupCount");
+  const dbgPopupEventEl = document.getElementById("dbgPopupEvent");
+  const dbgPopupDebugEl = document.getElementById("dbgPopupDebug");
+  const dbgTsEl = document.getElementById("dbgTs");
 
   let badgeTimer = null;
   let ws = null;
@@ -128,14 +138,30 @@ window.addEventListener("DOMContentLoaded", () => {
     if (autoScrollEl?.checked) logEl.scrollTop = 0;
   }
 
-  function showGesture(name) {
-    if (!badge || !badgeName) return;
-    badgeName.textContent = name;
+  const gestureState = { right: "", left: "" };
+
+  function renderGestureBadge() {
+    if (!badge) return;
+    if (badgeRight) badgeRight.textContent = gestureState.right || "—";
+    if (badgeLeft) badgeLeft.textContent = gestureState.left || "—";
     badge.style.display = "inline-flex";
+  }
+
+  function showGesture(name, hand = "") {
+    if (!badge) return;
+    const h = String(hand || "").toLowerCase();
+    if (h === "right") gestureState.right = name;
+    else if (h === "left") gestureState.left = name;
+    else gestureState.right = name;
+
+    renderGestureBadge();
     if (badgeTimer) clearTimeout(badgeTimer);
     badgeTimer = setTimeout(() => {
       badge.style.display = "none";
-      badgeName.textContent = "";
+      gestureState.right = "";
+      gestureState.left = "";
+      if (badgeRight) badgeRight.textContent = "";
+      if (badgeLeft) badgeLeft.textContent = "";
     }, 650);
   }
 
@@ -192,10 +218,9 @@ window.addEventListener("DOMContentLoaded", () => {
 
         if (msg.type === "py") {
           const line = msg.line || "";
-          if (line.startsWith("EV GESTURE ")) {
-            const g = line.slice("EV GESTURE ".length).trim();
-            showGesture(g);
-          }
+          onPythonLine(line);
+          const ev = parseEvGesture(line);
+          if (ev) showGesture(ev.name, ev.hand);
           log(line, "py");
           return;
         }
@@ -268,12 +293,124 @@ window.addEventListener("DOMContentLoaded", () => {
   // Camera preview + server camera management
   let currentStream = null;
 
+  // Debug (gesture detector) panel
+  let debugVisible = false;
+  const debugLines = [];
+  const DEBUG_MAX_LINES = 24;
+  const debugState = {
+    lastGestureRight: null,
+    lastGestureLeft: null,
+    lastWaveRight: null,
+    lastWaveLeft: null,
+    lastUpdate: null,
+    popupLeft: null,
+    popupRight: null,
+    popupCount: null,
+    popupEvent: null,
+    popupDebug: null
+  };
+
+  function pushDebugLine(line) {
+    debugLines.unshift(line);
+    if (debugLines.length > DEBUG_MAX_LINES) debugLines.length = DEBUG_MAX_LINES;
+  }
+
+  function renderDebug() {
+    if (!gestureDebugEl) return;
+    if (dbgPopupLeftEl) dbgPopupLeftEl.textContent = debugState.popupLeft || "—";
+    if (dbgPopupRightEl) dbgPopupRightEl.textContent = debugState.popupRight || "—";
+    if (dbgPopupCountEl) dbgPopupCountEl.textContent = debugState.popupCount || "—";
+    if (dbgPopupEventEl) dbgPopupEventEl.textContent = debugState.popupEvent || "—";
+    if (dbgPopupDebugEl) dbgPopupDebugEl.textContent = debugState.popupDebug || "—";
+    if (dbgTsEl) dbgTsEl.textContent = debugState.lastUpdate || "—";
+    if (gestureDebugLogEl) gestureDebugLogEl.textContent = debugLines.join("\n");
+  }
+
+  function parseEvGesture(line) {
+    const s = String(line || "").trim();
+    if (!s.startsWith("EV GESTURE ")) return null;
+    const rest = s.slice("EV GESTURE ".length).trim();
+    if (!rest) return null;
+
+    // New format: "EV GESTURE <hand> <name...>"
+    // Old format: "EV GESTURE <name...>"
+    const m = rest.match(/^(left|right|both)\s+(.*)$/i);
+    if (m) {
+      const hand = m[1].toLowerCase();
+      const name = String(m[2] || "").trim();
+      if (!name) return null;
+      return { hand, name };
+    }
+    return { hand: "", name: rest };
+  }
+
+  function onPythonLine(line) {
+    const s = String(line || "").trim();
+    if (!s) return;
+
+    // keep only "interesting" lines for the debug panel (avoid spamming)
+    const interesting =
+      s.startsWith("EV GESTURE ") ||
+      s.startsWith("EV POPUP ") ||
+      s.includes("[WAVE_DBG]") ||
+      s.includes("amp=") ||
+      s.includes("open_ratio=") ||
+      s.includes("states=") ||
+      s.includes("RECORDING");
+
+    const ev = parseEvGesture(s);
+    if (ev) {
+      if (ev.hand === "right") debugState.lastGestureRight = ev.name;
+      else if (ev.hand === "left") debugState.lastGestureLeft = ev.name;
+      else debugState.lastGestureRight = ev.name;
+    }
+
+    const m = s.match(/\[WAVE_DBG\].*hand=([a-zA-Z_]+).*amp=([0-9.]+).*flips=([0-9]+).*open_ratio=([0-9.]+)/);
+    if (m) {
+      const hand = String(m[1] || "").toLowerCase();
+      const txt = `amp=${m[2]} flips=${m[3]} open=${m[4]}`;
+      if (hand === "right") debugState.lastWaveRight = txt;
+      else if (hand === "left") debugState.lastWaveLeft = txt;
+    }
+
+    // Popup-identical debug lines (from Python headless mode)
+    if (s.startsWith("EV POPUP HAND ")) {
+      const m2 = s.match(/^EV POPUP HAND (left|right)\s+(.*)$/i);
+      if (m2) {
+        const hand = String(m2[1]).toLowerCase();
+        const txt = String(m2[2] || "").trim();
+        if (hand === "left") debugState.popupLeft = txt;
+        if (hand === "right") debugState.popupRight = txt;
+      }
+    } else if (s.startsWith("EV POPUP HUD ")) {
+      const rest = s.slice("EV POPUP HUD ".length);
+      const mCount = rest.match(/^count=(.*)$/);
+      const mEvent = rest.match(/^last_event=(.*)$/);
+      if (mCount) debugState.popupCount = String(mCount[1] || "").trim();
+      else if (mEvent) debugState.popupEvent = String(mEvent[1] || "").trim();
+      else debugState.popupDebug = rest.trim();
+    }
+
+    if (interesting) pushDebugLine(s);
+    debugState.lastUpdate = now();
+    if (debugVisible) renderDebug();
+  }
+
   async function enumerateBrowserDevices() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return [];
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
       const cams = devices.filter(d => d.kind === 'videoinput');
-      browserCams.innerHTML = cams.map(d => `<option value="${d.deviceId}">${d.label || 'Camera ' + d.deviceId}</option>`).join('');
+      if (browserCams) {
+        if (cams.length === 0) {
+          browserCams.innerHTML = '<option value="">(nessuna camera)</option>';
+        } else {
+          browserCams.innerHTML = [
+            '<option value="">(seleziona)</option>',
+            ...cams.map((d, i) => `<option value="${esc(d.deviceId)}">${esc(d.label || `Camera ${i + 1}`)}</option>`)
+          ].join("");
+        }
+      }
       return cams;
     } catch (err) {
       console.warn('enumerateDevices failed', err);
@@ -281,35 +418,44 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  async function startBrowserPreview(deviceId) {
+  async function startBrowserPreview(deviceId, { showToast = false } = {}) {
     try {
+      if (!camPreview) return;
       if (currentStream) {
         currentStream.getTracks().forEach(t => t.stop());
         currentStream = null;
       }
-      const constraints = { video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode: 'user' } };
+      const constraints = { video: deviceId ? { deviceId: { exact: deviceId } } : true };
       currentStream = await navigator.mediaDevices.getUserMedia(constraints);
       camPreview.srcObject = currentStream;
+      try { await camPreview.play(); } catch (e) {}
+      // after permission, refresh labels best-effort
+      enumerateBrowserDevices();
+      if (showToast) toast("Preview avviata");
     } catch (err) {
       console.warn('getUserMedia failed', err);
       toast('Permesso camera negato o dispositivo non disponibile');
     }
   }
 
-  function stopBrowserPreview() {
+  function stopBrowserPreview({ showToast = false } = {}) {
     try {
       if (currentStream) {
         currentStream.getTracks().forEach(t => t.stop());
         currentStream = null;
       }
-      if (camPreview) camPreview.srcObject = null;
-      toast('Preview fermata');
+      if (camPreview) {
+        try { camPreview.pause(); } catch (e) {}
+        camPreview.srcObject = null;
+      }
+      if (showToast) toast('Preview fermata');
     } catch (err) {
       console.warn('stopBrowserPreview failed', err);
     }
   }
 
   async function fetchServerCams() {
+    if (!serverCams) return;
     try {
       const r = await fetch('/api/cameras');
       const j = await r.json();
@@ -379,56 +525,29 @@ window.addEventListener("DOMContentLoaded", () => {
   btnHello?.addEventListener("click", () => sendCmd("LCD:Hello"));
 
   // camera UI wiring
-  browserCams?.addEventListener('change', () => startBrowserPreview(browserCams.value));
+  browserCams?.addEventListener("change", () => {
+    // switch camera only if preview is already running
+    if (currentStream) startBrowserPreview(browserCams.value);
+  });
   applyServerCamBtn?.addEventListener('click', () => applyServerCamera());
   refreshServerCamsBtn?.addEventListener('click', () => fetchServerCams());
-  stopPreviewBtn?.addEventListener('click', async () => {
-    // Attempt to stop server-side detector first so the device is free
-    try {
-      await fetch('/api/gesture/stop', { method: 'POST' });
-    } catch (e) {
-      console.warn('Failed to stop gesture service before releasing camera', e);
-    }
+  stopPreviewBtn?.addEventListener("click", () => stopBrowserPreview({ showToast: true }));
+  startPreviewBtn?.addEventListener("click", () => startBrowserPreview(browserCams?.value, { showToast: true }));
 
-    // Always stop browser preview immediately
-    stopBrowserPreview();
-
-    // If a numeric server camera is selected, poll the server-side camera check
-    const selected = serverCams?.value;
-    if (selected && !selected.startsWith('arduino:')) {
-      const idx = Number(selected);
-      const start = performance.now();
-      let freed = false;
-      // Poll up to 4s for faster release
-      while (performance.now() - start < 4000) {
-        try {
-          const r = await fetch(`/api/camera/check?index=${idx}`, { cache: 'no-store' });
-          const j = await r.json();
-          if (j.ok) { freed = true; break; }
-        } catch (e) {
-          // ignore and retry
-        }
-        await new Promise(res => setTimeout(res, 200));
-      }
-
-      if (freed) {
-        toast('Preview fermata — camera rilasciata');
-      } else {
-        toast('Preview fermata — ma camera ancora occupata');
-      }
-      return;
-    }
-
-    // fallback: just notify preview stopped
-    toast('Preview fermata');
+  toggleGestureDebugBtn?.addEventListener("click", () => {
+    if (!gestureDebugEl) return;
+    debugVisible = !debugVisible;
+    gestureDebugEl.style.display = debugVisible ? "block" : "none";
+    renderDebug();
   });
-  startPreviewBtn?.addEventListener('click', () => startBrowserPreview(browserCams?.value));
 
   // when starting gesture, include selected server camera so Python uses it
   async function startGesture() {
     try {
-      // stop browser preview so the camera device is released and its LED turns off
-      stopBrowserPreview();
+      // user request: default preview OFF, but starting gesture turns it ON
+      if (!currentStream) {
+        await startBrowserPreview(browserCams?.value);
+      }
 
       // if we have a numeric camera selected on the server, wait up to 3s for it to be openable
       const selected = serverCams?.value;
@@ -463,9 +582,7 @@ window.addEventListener("DOMContentLoaded", () => {
   // initialize camera lists and preview
   (async () => {
     await enumerateBrowserDevices();
-    // try to softly request permission to get labels (best-effort)
-    try { await navigator.mediaDevices.getUserMedia({ video: true }); await enumerateBrowserDevices(); } catch (e) {}
-    if (browserCams && browserCams.value) startBrowserPreview(browserCams.value);
+    // keep default preview OFF on boot; user can press Start or start gesture()
     fetchServerCams();
   })();
 

@@ -17,12 +17,13 @@ class PerHandResult:
 
 
 class GestureDetector:
-    def __init__(self, wave_permissive: bool = False, *, min_score: float = 0.50, min_palm_scale: float = 0.04, center_margin: float = 0.02, suppress_open_after_wave_s: float = 1.5):
+    def __init__(self, wave_permissive: bool = False, *, min_score: float = 0.50, min_palm_scale: float = 0.04, center_margin: float = 0.02, suppress_open_after_wave_s: float = 1.5, emit_wave_dbg: bool = False):
         # Configuration: tune to avoid false positives (shoulder / tiny detections)
         self.min_score = float(min_score)
         self.min_palm_scale = float(min_palm_scale)
         self.center_margin = float(center_margin)
         self.suppress_open_after_wave_s = float(suppress_open_after_wave_s)
+        self.emit_wave_dbg = bool(emit_wave_dbg)
 
         # Use normalized WaveTracker for both hands. Keep detection stable
         # and debuggable by using a single, scale-normalized tracker.
@@ -150,7 +151,7 @@ class GestureDetector:
             # attach normalized wave stats to per-hand result for debug/inspection
             per_hand[handed].wave_stats = {"amp_norm": amp_norm, "flips": flips, "open_ratio": open_ratio, "conf": conf}
             # Lightweight debug: print when there is notable motion or flips
-            if (flips > 0) or (amp_norm >= 0.15):
+            if self.emit_wave_dbg and ((flips > 0) or (amp_norm >= 0.15)):
                 print(f"[WAVE_DBG] ts={ts:.2f} hand={handed} amp={amp_norm:.3f} flips={flips} open_ratio={open_ratio:.2f} fired={fired}")
 
             if fired:

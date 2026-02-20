@@ -165,7 +165,7 @@ Browser ⇄ WebSocket ⇄ Node ⇄ Serial ⇄ Arduino ⇄ Servo
 - fatto carino sito
 - ho rotto tutto e sono tornata indietro non mi va di appuntarmi ciò che ho perso.
 
-## Fase 9: Lista spesa
+## Fase 9: Lista spesa (non vera)
 
 * base con ruoote (la prendo già pronta- kit chassis 2wd)
     * 2 motori DC
@@ -225,4 +225,16 @@ Spesa fatta, 42,48€ da Aliexpress!
 + 11.41€ perchè ho sbagliato e invece di prendere esp32 ho preso due breakout boards :D
 = 53,99€
 (spoiler, potevo prendere un solo microcontrollore ma vabbe)
+
+## Fase 10: torniamo indietro
+
+Cercherò di tornare indietro nell'index.html e aggiungere quello che avevo già fatto e poi rotto tutto:
+- slot per preview camera con start/stop button e debug con parametri gesture detection
+- automaticamente preview off ma si accende con start gesture_detector
+- se turno off la preview fotocamera si libera immediatamente la risorsa camera
+- menu a tendina per selezionare cam 
+- aggiunta di entrambe le mani nel pannello //GESTURE
+
+- tendina per scegliere la cam ---> abilita quella stessa cam a tutti i servizi
+
 

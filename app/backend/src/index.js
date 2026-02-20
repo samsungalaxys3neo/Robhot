@@ -55,8 +55,7 @@ wss.on("connection", (ws) => {
 
 let gestureProc = null;
 
-let lastGesture = null;
-let lastTriggerTime = 0;
+const lastTriggerByKey = new Map();
 const COOLDOWN_MS = Number(process.env.GESTURE_COOLDOWN_MS || 1000);
 
 const gestureMap = {
@@ -82,14 +81,25 @@ app.post("/api/gesture/start", (req, res) => {
 
     if (!clean.startsWith("EV GESTURE ")) return;
 
-    const g = clean.slice("EV GESTURE ".length).trim();
+    const raw = clean.slice("EV GESTURE ".length).trim();
+    if (!raw) return;
+
+    // New format: "EV GESTURE <hand> <name...>"
+    // Old format: "EV GESTURE <name...>"
+    let hand = "";
+    let g = raw;
+    const m = raw.match(/^(left|right|both)\s+(.*)$/i);
+    if (m) {
+      hand = String(m[1] || "").toLowerCase();
+      g = String(m[2] || "").trim();
+    }
     if (!g || g === "count") return;
 
     const now = Date.now();
-    if (g === lastGesture && now - lastTriggerTime < COOLDOWN_MS) return;
-
-    lastGesture = g;
-    lastTriggerTime = now;
+    const key = `${hand || "none"}:${g}`;
+    const last = lastTriggerByKey.get(key) || 0;
+    if (now - last < COOLDOWN_MS) return;
+    lastTriggerByKey.set(key, now);
 
     const cmd = gestureMap[g];
     if (!cmd) {

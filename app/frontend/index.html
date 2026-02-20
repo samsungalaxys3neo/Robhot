@@ -33,6 +33,7 @@
             <div class="actions">
               <button class="btn" id="startGesture" type="button">Start</button>
               <button class="btn btnGhost" id="stopGesture" type="button">Stop</button>
+              <button class="btn btnGhost" id="toggleGestureDebug" type="button">Debug</button>
             </div>
           </div>
 
@@ -40,8 +41,47 @@
 
           <div id="gestureBadge" class="badge" style="display:none;">
             <span class="badgeDot"></span>
-            <span>Gesture:</span>
-            <b id="gestureName"></b>
+            <span>Right:</span>
+            <b id="gestureRight"></b>
+            <span class="sep">|</span>
+            <span>Left:</span>
+            <b id="gestureLeft"></b>
+          </div>
+
+          <div id="gestureDebug" class="debugPanel" style="display:none;">
+            <div class="hint">Debug gesture detection</div>
+            <div class="debugGrid">
+              <div class="debugItem"><span class="dim">LEFT</span><b id="dbgPopupLeft">—</b></div>
+              <div class="debugItem"><span class="dim">RIGHT</span><b id="dbgPopupRight">—</b></div>
+              <div class="debugItem"><span class="dim">count</span><b id="dbgPopupCount">—</b></div>
+              <div class="debugItem"><span class="dim">last_event</span><b id="dbgPopupEvent">—</b></div>
+              <div class="debugItem"><span class="dim">debug</span><b id="dbgPopupDebug">—</b></div>
+              <div class="debugItem"><span class="dim">Last update</span><b id="dbgTs">—</b></div>
+            </div>
+            <pre id="gestureDebugLog" class="miniLog"></pre>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="cardHead">
+            <h2>Camera</h2>
+            <div class="actions">
+              <button class="btn btnGhost" id="startPreviewBtn" type="button">Start</button>
+              <button class="btn btnGhost" id="stopPreviewBtn" type="button">Stop</button>
+            </div>
+          </div>
+
+          <div class="hint">Preview locale della fotocamera (default: OFF). Se avvii la gesture detection, si accende.</div>
+
+          <div class="camRow">
+            <label class="field">
+              <span class="fieldLabel">Camera</span>
+              <select id="browserCams"></select>
+            </label>
+          </div>
+
+          <div class="camWrap">
+            <video id="camPreview" class="camPreview" autoplay playsinline muted></video>
           </div>
         </div>
 

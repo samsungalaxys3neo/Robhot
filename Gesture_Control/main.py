@@ -12,6 +12,7 @@ import sys
 from hand_detector import HandDetector
 from gesture_detector import GestureDetector
 from camera import CameraUI
+from gestures import to_px
 
 # Optional Arduino hook: if present, use it to send a 'W' when a wave is detected.
 #try:
@@ -20,8 +21,12 @@ from camera import CameraUI
 #    arduino_ctrl = None
 arduino_ctrl = None
 
-def emit_gesture(name: str):
-    sys.stdout.write(f"EV GESTURE {name}\n")
+def emit_gesture(name: str, hand: str | None = None):
+    h = (hand or "").strip().lower()
+    if h:
+        sys.stdout.write(f"EV GESTURE {h} {name}\n")
+    else:
+        sys.stdout.write(f"EV GESTURE {name}\n")
     sys.stdout.flush()
 
 
@@ -96,7 +101,26 @@ def open_camera(preferred_index: int = 0):
     return None, None
 
 
-def main(cam_index: int | None = None, wave_permissive: bool = False):
+def _format_hand_popup_line(frame, lms, handedness: str) -> str:
+    h, w = frame.shape[:2]
+    key_ids = [0, 4, 8, 12, 16, 20]
+    labels = {0: "W", 4: "T", 8: "I", 12: "M", 16: "R", 20: "P"}
+    parts = []
+    for idx in key_ids:
+        if idx < len(lms):
+            cx, cy = to_px(lms[idx], w, h)
+            parts.append(f"{labels[idx]}({cx},{cy})")
+    txt = " ".join(parts)
+    return f"{handedness.upper()} {txt}".strip()
+
+
+def main(
+    cam_index: int | None = None,
+    wave_permissive: bool = False,
+    show_ui: bool = True,
+    emit_popup_debug: bool = False,
+    emit_wave_dbg: bool = False,
+):
     # Load persisted config (preferred camera index)
     cfg_path = os.path.expanduser("~/.gesture_control.json")
     cfg = {}
@@ -121,7 +145,7 @@ def main(cam_index: int | None = None, wave_permissive: bool = False):
         raise RuntimeError("Unable to open any camera")
 
     hd = HandDetector()
-    gd = GestureDetector(wave_permissive=wave_permissive)
+    gd = GestureDetector(wave_permissive=wave_permissive, emit_wave_dbg=emit_wave_dbg)
     ui = CameraUI()
 
     event_hold_s = 2.0
@@ -197,7 +221,7 @@ def main(cam_index: int | None = None, wave_permissive: bool = False):
                 # Keep wave HUD visible briefly
                 if ev.name == "count":
                     continue    
-                emit_gesture(ev.name) # chiamo la funzione per arduino per ogni gesto
+                emit_gesture(ev.name, ev.hand) # chiamo la funzione per arduino per ogni gesto
 
                 if ev.name == "wave":
                   wave_display_expires[ev.hand] = ts + wave_display_s
@@ -274,49 +298,76 @@ def main(cam_index: int | None = None, wave_permissive: bool = False):
 
         ui.draw_hud(frame, hud_text, total)
 
-        cv2.imshow("gesture_detector", frame)
-        k = cv2.waitKey(1) & 0xFF
-        if k == 27 or k == ord("q"):
-            break
-        if k == ord("d"):
-            ui.debug = not ui.debug
-        if k == ord("p"):
-            # Toggle recording mode: start/stop collecting per-frame diagnostics
-            if not is_recording:
-                is_recording = True
-                record_buffer = []
-                record_start_ts = ts
-                print(f"Started recording diagnostics at {record_start_ts:.3f} (max {record_max_s}s). Press 'p' again to stop.")
-            else:
-                # Stop and dump buffer
-                is_recording = False
-                print(f"Stopped recording at {ts:.3f}. Collected {len(record_buffer)} samples.")
-                if record_buffer:
-                    # Print collected samples to terminal (human readable)
-                    for rec in record_buffer:
-                        print(f"{rec['ts']:.3f}\t{rec['side']}\tstates={rec['states']}\tcount={rec['count']}\tamp={rec['amp_norm']:.4f}\tflips={rec['flips']}\topen={rec['open_ratio']:.3f}\tconf={rec['conf']:.3f}")
+        # Emit the same "popup window" debug strings over stdout (throttled),
+        # so the web UI can show identical parameters without opening OpenCV windows.
+        if emit_popup_debug:
+            if not hasattr(main, "_last_popup_emit_ts"):
+                main._last_popup_emit_ts = 0.0
+            if ts - main._last_popup_emit_ts >= 0.25:
+                main._last_popup_emit_ts = ts
+                try:
+                    # Hand debug lines (match CameraUI.draw_hand text)
+                    for h in hands:
+                        handed = h.get("handedness")
+                        if handed in ("left", "right"):
+                            txt_full = _format_hand_popup_line(frame, h.get("landmarks", []), handed)
+                            sys.stdout.write(f"EV POPUP HAND {handed} {txt_full}\n")
+                    # HUD lines (match CameraUI.draw_hud text)
+                    sys.stdout.write(f"EV POPUP HUD count=count={total}\n")
+                    if hud_text:
+                        sys.stdout.write(f"EV POPUP HUD last_event={hud_text}\n")
+                    sys.stdout.write(f"EV POPUP HUD debug={'ON' if ui.debug else 'OFF'} (press D)\n")
+                    sys.stdout.flush()
+                except Exception:
+                    pass
 
-                    # Save to CSV for easy sharing
-                    try:
-                        os.makedirs(record_dir, exist_ok=True)
-                        fname = os.path.join(record_dir, f"wave_record_{int(record_start_ts)}.csv")
-                        with open(fname, "w", newline="") as cf:
-                            writer = csv.writer(cf)
-                            writer.writerow(["ts", "side", "states", "count", "amp_norm", "flips", "open_ratio", "conf"])
-                            for rec in record_buffer:
-                                writer.writerow([
-                                    f"{rec['ts']:.6f}",
-                                    rec["side"],
-                                    str(rec["states"]),
-                                    rec["count"],
-                                    f"{rec['amp_norm']:.6f}",
-                                    rec["flips"],
-                                    f"{rec['open_ratio']:.6f}",
-                                    f"{rec['conf']:.6f}",
-                                ])
-                        print(f"Saved recording to {fname}")
-                    except Exception as e:
-                        print(f"Failed to save recording: {e}")
+        if show_ui:
+            cv2.imshow("gesture_detector", frame)
+            k = cv2.waitKey(1) & 0xFF
+            if k == 27 or k == ord("q"):
+                break
+            if k == ord("d"):
+                ui.debug = not ui.debug
+            if k == ord("p"):
+                # Toggle recording mode: start/stop collecting per-frame diagnostics
+                if not is_recording:
+                    is_recording = True
+                    record_buffer = []
+                    record_start_ts = ts
+                    print(f"Started recording diagnostics at {record_start_ts:.3f} (max {record_max_s}s). Press 'p' again to stop.")
+                else:
+                    # Stop and dump buffer
+                    is_recording = False
+                    print(f"Stopped recording at {ts:.3f}. Collected {len(record_buffer)} samples.")
+                    if record_buffer:
+                        # Print collected samples to terminal (human readable)
+                        for rec in record_buffer:
+                            print(f"{rec['ts']:.3f}\t{rec['side']}\tstates={rec['states']}\tcount={rec['count']}\tamp={rec['amp_norm']:.4f}\tflips={rec['flips']}\topen={rec['open_ratio']:.3f}\tconf={rec['conf']:.3f}")
+
+                        # Save to CSV for easy sharing
+                        try:
+                            os.makedirs(record_dir, exist_ok=True)
+                            fname = os.path.join(record_dir, f"wave_record_{int(record_start_ts)}.csv")
+                            with open(fname, "w", newline="") as cf:
+                                writer = csv.writer(cf)
+                                writer.writerow(["ts", "side", "states", "count", "amp_norm", "flips", "open_ratio", "conf"])
+                                for rec in record_buffer:
+                                    writer.writerow([
+                                        f"{rec['ts']:.6f}",
+                                        rec["side"],
+                                        str(rec["states"]),
+                                        rec["count"],
+                                        f"{rec['amp_norm']:.6f}",
+                                        rec["flips"],
+                                        f"{rec['open_ratio']:.6f}",
+                                        f"{rec['conf']:.6f}",
+                                    ])
+                            print(f"Saved recording to {fname}")
+                        except Exception as e:
+                            print(f"Failed to save recording: {e}")
+        else:
+            # No OpenCV window in headless mode
+            time.sleep(0.001)
 
         # Auto-stop recording when exceeding max duration
         if is_recording and (ts - record_start_ts) > record_max_s:
@@ -353,6 +404,9 @@ if __name__ == "__main__":
     parser.add_argument("--cam", type=int, default=None, help="Camera index to use (default: auto-detect built-in)")
     parser.add_argument("--save-cam", action="store_true", help="Save the chosen --cam index to ~/.gesture_control.json for future runs")
     parser.add_argument("--wave-permissive", action="store_true", help="Enable very permissive wave detection (more sensitive)")
+    parser.add_argument("--headless", action="store_true", help="Run without opening the OpenCV window")
+    parser.add_argument("--emit-popup-debug", action="store_true", help="Emit popup-identical debug lines over stdout (throttled)")
+    parser.add_argument("--emit-wave-dbg", action="store_true", help="Emit [WAVE_DBG] lines over stdout (noisy)")
     args = parser.parse_args()
     # If user passed --save-cam together with --cam, persist it
     if args.save_cam and args.cam is not None:
@@ -364,4 +418,10 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"Failed to save config: {e}")
 
-    main(args.cam, wave_permissive=args.wave_permissive)
+    main(
+        args.cam,
+        wave_permissive=args.wave_permissive,
+        show_ui=(not args.headless),
+        emit_popup_debug=args.emit_popup_debug,
+        emit_wave_dbg=args.emit_wave_dbg,
+    )
